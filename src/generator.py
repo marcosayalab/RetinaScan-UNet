@@ -44,8 +44,7 @@ class DataGenerator(keras.utils.PyDataset):
             # Para la máscara, léela en escala de grises (cv2.IMREAD_GRAYSCALE).
             ojo_bgr = cv2.imread(ruta_img) 
             ojo_rgb = cv2.cvtColor(ojo_bgr, cv2.COLOR_BGR2RGB)
-            mask_pil = Image.open(ruta_mask)
-            mask_array = np.array(mask_pil)
+            mask_array = cv2.imread(ruta_mask, cv2.IMREAD_GRAYSCALE)
 
             # 2: Normalización
             # Las imágenes vienen con píxeles de 0 a 255. Divídelas para que estén entre 0.0 y 1.0.
