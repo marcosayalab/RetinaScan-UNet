@@ -13,7 +13,8 @@ from metrics import dice_coef, dice_loss, bce_dice_loss
 # 0. CONFIGURACIÓN
 # ===========================================================================
 DIR_IMAGENES_TRAIN = os.path.join("data", "training", "images")
-DIR_MASCARAS_TRAIN = os.path.join("data", "training", "1st_manual")
+# NOTA: 'gt' = Ground Truth (segmentaciones manuales de referencia)
+DIR_GT_TRAIN       = os.path.join("data", "training", "1st_manual")
 DIR_MODELOS        = "modelos_guardados"
 os.makedirs(DIR_MODELOS, exist_ok=True)
 
@@ -32,24 +33,25 @@ tf.random.set_seed(SEED)
 # ===========================================================================
 # 1. CARGA DE RUTAS
 # ===========================================================================
-def cargar_rutas_drive(dir_imagenes, dir_mascaras):
+def cargar_rutas_drive(dir_imagenes, dir_gt):
+    """Carga rutas de imágenes y ground truth desde el dataset DRIVE"""
     EXTENSIONES = ("*.tif", "*.tiff", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp")
-    rutas_imgs, rutas_masks = [], []
+    rutas_imgs, rutas_gt = [], []
     for ext in EXTENSIONES:
-        rutas_imgs  += glob.glob(os.path.join(dir_imagenes, ext))
-        rutas_masks += glob.glob(os.path.join(dir_mascaras, ext))
-    rutas_imgs  = sorted(set(rutas_imgs))
-    rutas_masks = sorted(set(rutas_masks))
+        rutas_imgs += glob.glob(os.path.join(dir_imagenes, ext))
+        rutas_gt  += glob.glob(os.path.join(dir_gt, ext))
+    rutas_imgs = sorted(set(rutas_imgs))
+    rutas_gt   = sorted(set(rutas_gt))
 
     if len(rutas_imgs) == 0:
         raise FileNotFoundError(f"No se encontraron imágenes en '{dir_imagenes}'.")
-    if len(rutas_masks) == 0:
-        raise FileNotFoundError(f"No se encontraron máscaras en '{dir_mascaras}'.")
-    if len(rutas_imgs) != len(rutas_masks):
-        raise ValueError(f"Nº imágenes ({len(rutas_imgs)}) ≠ Nº máscaras ({len(rutas_masks)}).")
+    if len(rutas_gt) == 0:
+        raise FileNotFoundError(f"No se encontraron ground truth en '{dir_gt}'.")
+    if len(rutas_imgs) != len(rutas_gt):
+        raise ValueError(f"Nº imágenes ({len(rutas_imgs)}) ≠ Nº ground truth ({len(rutas_gt)}).")
 
-    print(f"[INFO] {len(rutas_imgs)} pares imagen/máscara cargados.")
-    return np.array(rutas_imgs), np.array(rutas_masks)
+    print(f"[INFO] {len(rutas_imgs)} pares imagen/ground_truth cargados.")
+    return np.array(rutas_imgs), np.array(rutas_gt)
 
 # ===========================================================================
 # 2. CALLBACKS
@@ -73,7 +75,8 @@ def crear_callbacks(fold):
 # ===========================================================================
 # 3. ENTRENAMIENTO K-FOLD
 # ===========================================================================
-def entrenar_con_kfold(rutas_imgs, rutas_masks):
+def entrenar_con_kfold(rutas_imgs, rutas_gt):
+    """Entrena la red con validación cruzada k-fold"""
     kf = KFold(n_splits=N_FOLDS, shuffle=True, random_state=SEED)
     historial_dice_val = []
 
@@ -85,13 +88,13 @@ def entrenar_con_kfold(rutas_imgs, rutas_masks):
 
         gen_train = DataGenerator(
             rutas_imagenes=list(rutas_imgs[indices_train]) * REPETICIONES,
-            rutas_mascaras=list(rutas_masks[indices_train]) * REPETICIONES,
+            rutas_gt=list(rutas_gt[indices_train]) * REPETICIONES,
             batch_size=BATCH_SIZE,
             patch_size=PATCH_SIZE
         )
         gen_val = DataGenerator(
             rutas_imagenes=list(rutas_imgs[indices_val]),
-            rutas_mascaras=list(rutas_masks[indices_val]),
+            rutas_gt=list(rutas_gt[indices_val]),
             batch_size=BATCH_SIZE,
             patch_size=PATCH_SIZE
         )
@@ -129,12 +132,12 @@ def entrenar_con_kfold(rutas_imgs, rutas_masks):
 # ===========================================================================
 if __name__ == "__main__":
     print("[INFO] Cargando rutas del dataset DRIVE...")
-    rutas_imgs, rutas_masks = cargar_rutas_drive(DIR_IMAGENES_TRAIN, DIR_MASCARAS_TRAIN)
+    rutas_imgs, rutas_gt = cargar_rutas_drive(DIR_IMAGENES_TRAIN, DIR_GT_TRAIN)
 
     print("\n--- DIAGNÓSTICO DE RUTAS ---")
-    for img, mask in zip(rutas_imgs[:3], rutas_masks[:3]):
+    for img, gt in zip(rutas_imgs[:3], rutas_gt[:3]):
         print(f"  IMG : {os.path.basename(img)}")
-        print(f"  MASK: {os.path.basename(mask)}")
+        print(f"  GT : {os.path.basename(gt)}")
 
     print("\n[INFO] Iniciando entrenamiento con validación cruzada 5-Fold...")
-    entrenar_con_kfold(rutas_imgs, rutas_masks)
+    entrenar_con_kfold(rutas_imgs, rutas_gt)

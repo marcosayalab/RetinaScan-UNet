@@ -1,22 +1,22 @@
 import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import backend as K
-from tensorflow.keras.losses import binary_crossentropy
+import keras
 
-@keras.saving.register_keras_serializable()
+@keras.saving.register_keras_serializable(package="Custom")
 def dice_coef(y_true, y_pred, smooth=1e-6):
-    y_true_f = K.flatten(y_true)
-    y_pred_f = K.flatten(y_pred)
-    intersection = K.sum(y_true_f * y_pred_f)
+    y_true_f = tf.reshape(y_true, [-1])
+    y_pred_f = tf.reshape(y_pred, [-1])
+    intersection = tf.reduce_sum(y_true_f * y_pred_f)
     numerador = 2. * intersection + smooth
-    denominador = K.sum(y_true_f) + K.sum(y_pred_f) + smooth
+    denominador = tf.reduce_sum(y_true_f) + tf.reduce_sum(y_pred_f) + smooth
     return numerador / denominador
 
-@keras.saving.register_keras_serializable()
+@keras.saving.register_keras_serializable(package="Custom")
 def dice_loss(y_true, y_pred):
     return 1.0 - dice_coef(y_true, y_pred)
 
-@keras.saving.register_keras_serializable()
+@keras.saving.register_keras_serializable(package="Custom")
 def bce_dice_loss(y_true, y_pred):
-    bce = binary_crossentropy(K.flatten(y_true), K.flatten(y_pred))
-    return bce + dice_loss(y_true, y_pred)
+    y_true_f = tf.reshape(y_true, [-1])
+    y_pred_f = tf.reshape(y_pred, [-1])
+    bce = tf.keras.losses.binary_crossentropy(y_true_f, y_pred_f)
+    return tf.reduce_mean(bce) + dice_loss(y_true, y_pred)
