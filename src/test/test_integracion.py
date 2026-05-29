@@ -9,14 +9,18 @@ from generator import DataGenerator
 # Importamos EL MODELO (del archivo model.py)
 from model import construir_unet
 
-# 1. Definimos las rutas de prueba (saliendo de src/ hacia data/)
+# Construimos las rutas correctas desde la raíz del proyecto
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(script_dir))
+
+# 1. Definimos las rutas de prueba (usando rutas absolutas)
 rutas_img_prueba = [
-    "../data/training/images/21_training.tif", 
-    "../data/training/images/22_training.tif"
+    os.path.join(project_root, "data/training/images/21_training.tif"), 
+    os.path.join(project_root, "data/training/images/22_training.tif")
 ]
 rutas_mask_prueba = [
-    "../data/training/1st_manual/21_manual1.gif", 
-    "../data/training/1st_manual/22_manual1.gif"
+    os.path.join(project_root, "data/training/1st_manual/21_manual1.gif"), 
+    os.path.join(project_root, "data/training/1st_manual/22_manual1.gif")
 ]
 
 print("Inicializando el motor de datos...")
