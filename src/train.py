@@ -17,7 +17,7 @@ from metrics import dice_coef, bce_dice_loss
 DIR_IMAGENES_TRAIN = os.path.join("data", "training", "images")
 # NOTA: 'gt' = Ground Truth (segmentaciones manuales de referencia)
 DIR_GT_TRAIN       = os.path.join("data", "training", "1st_manual")
-DIR_MODELOS        = "modelos_guardados"
+DIR_MODELOS        = "models"
 os.makedirs(DIR_MODELOS, exist_ok=True)
 
 BATCH_SIZE    = 4

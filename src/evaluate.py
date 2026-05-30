@@ -31,8 +31,8 @@ DIR_GT2_TEST        = os.path.join("data", "test", "2nd_manual")
 # Indica qué píxeles están dentro del campo de visión del retinógrafo
 DIR_FOV_TEST       = os.path.join("data", "test", "mask")
 
-DIR_MODELOS        = "modelos_guardados"
-DIR_PREDICCIONES   = "predicciones"
+DIR_MODELOS        = "models"
+DIR_PREDICCIONES   = "predictions"
 
 PATCH_SIZE         = (128, 128)
 UMBRAL             = 0.5
