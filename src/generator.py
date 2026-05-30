@@ -54,6 +54,16 @@ class DataGenerator(keras.utils.PyDataset):
                 raise FileNotFoundError(f"No se pudo cargar la imagen: {ruta_img}. Verifica que la ruta existe.")
             
             ojo_rgb = cv2.cvtColor(ojo_bgr, cv2.COLOR_BGR2RGB)
+
+            # FILTRO CLAHE
+            # Pasamos a espacio de color LAB (Luminosidad, A, B)
+            ojo_lab = cv2.cvtColor(ojo_rgb, cv2.COLOR_RGB2LAB)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            # Se lo aplicamos solo al canal de luminosidad (L) para no distorsionar colores
+            ojo_lab[:, :, 0] = clahe.apply(ojo_lab[:, :, 0])
+            # Volvemos a RGB
+            ojo_rgb = cv2.cvtColor(ojo_lab, cv2.COLOR_LAB2RGB)
+
             gt_array = cv2.imread(ruta_gt, cv2.IMREAD_GRAYSCALE)
             if gt_array is None:
                 raise FileNotFoundError(f"No se pudo cargar el ground truth: {ruta_gt}. Verifica que la ruta existe.")
@@ -97,7 +107,17 @@ class DataGenerator(keras.utils.PyDataset):
                 k = random.choice([0, 1, 2])  # 0=90°, 1=180°, 2=270°
                 parche_img = cv2.rotate(parche_img, k)
                 parche_gt = cv2.rotate(parche_gt, k)
+            
+            # Alterción aleatoria del brillo (solo en la imagen, no en el ground truth)
+            if random.random() > 0.5:
+                factor_brillo = random.uniform(0.8, 1.2)  # Brillo entre 80% y 120%
+                parche_img = np.clip(parche_img * factor_brillo, 0.0, 1.0)  # Asegura que los valores sigan entre 0 y 1
 
+            # Ruido Gausiano (simula mala calidad de cámara)
+            if random.random() > 0.5:
+                ruido = np.random.normal(0, 0.05, parche_img.shape)  # Media=0, Desviación=0.05
+                parche_img = np.clip(parche_img + ruido, 0.0, 1.0)
+            
             # 5. Guardar los parches finales en las matrices del batch
             X[i,] = parche_img
             

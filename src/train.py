@@ -3,11 +3,13 @@ import glob
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
+from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+from keras.optimizers import Adam
 from sklearn.model_selection import KFold
 
 from generator import DataGenerator
 from model import construir_unet
-from metrics import dice_coef, dice_loss, bce_dice_loss
+from metrics import dice_coef, bce_dice_loss
 
 # ===========================================================================
 # 0. CONFIGURACIÓN
@@ -25,8 +27,9 @@ N_FOLDS       = 5
 LEARNING_RATE = 1e-4
 PATIENCE_EARLY = 25
 INPUT_SHAPE   = (128, 128, 3)
-REPETICIONES  = 10   # multiplica parches por época
+REPETICIONES  = 10  
 SEED = 42
+
 np.random.seed(SEED)
 tf.random.set_seed(SEED)
 
@@ -34,12 +37,12 @@ tf.random.set_seed(SEED)
 # 1. CARGA DE RUTAS
 # ===========================================================================
 def cargar_rutas_drive(dir_imagenes, dir_gt):
-    """Carga rutas de imágenes y ground truth desde el dataset DRIVE"""
     EXTENSIONES = ("*.tif", "*.tiff", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp")
     rutas_imgs, rutas_gt = [], []
     for ext in EXTENSIONES:
         rutas_imgs += glob.glob(os.path.join(dir_imagenes, ext))
         rutas_gt  += glob.glob(os.path.join(dir_gt, ext))
+
     rutas_imgs = sorted(set(rutas_imgs))
     rutas_gt   = sorted(set(rutas_gt))
 
@@ -59,15 +62,15 @@ def cargar_rutas_drive(dir_imagenes, dir_gt):
 def crear_callbacks(fold):
     ruta_modelo = os.path.join(DIR_MODELOS, f"fold_{fold + 1}.keras")
     return [
-        keras.callbacks.EarlyStopping(
+        EarlyStopping(
             monitor="val_dice_coef", mode="max",
             patience=PATIENCE_EARLY, restore_best_weights=True, verbose=1
         ),
-        keras.callbacks.ModelCheckpoint(
+        ModelCheckpoint(
             filepath=ruta_modelo, monitor="val_dice_coef",
             mode="max", save_best_only=True, verbose=1
         ),
-        keras.callbacks.ReduceLROnPlateau(
+        ReduceLROnPlateau(
             monitor="val_loss", factor=0.5, patience=7, min_lr=1e-7, verbose=1
         ),
     ]
@@ -76,7 +79,6 @@ def crear_callbacks(fold):
 # 3. ENTRENAMIENTO K-FOLD
 # ===========================================================================
 def entrenar_con_kfold(rutas_imgs, rutas_gt):
-    """Entrena la red con validación cruzada k-fold"""
     kf = KFold(n_splits=N_FOLDS, shuffle=True, random_state=SEED)
     historial_dice_val = []
 
@@ -101,7 +103,7 @@ def entrenar_con_kfold(rutas_imgs, rutas_gt):
 
         modelo = construir_unet(input_shape=INPUT_SHAPE)
         modelo.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
+            optimizer=Adam(learning_rate=LEARNING_RATE),
             loss=bce_dice_loss,
             metrics=[dice_coef]
         )

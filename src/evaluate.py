@@ -25,9 +25,8 @@ from metrics import dice_coef, dice_loss, bce_dice_loss
 # ===========================================================================
 
 DIR_IMAGENES_TEST  = os.path.join("data", "test", "images")
-# NOTA: 'gt' = Ground Truth (segmentaciones manuales de referencia anotadas por expertos)
-# Se encuentra en carpetas como '1st_manual' y '2nd_manual'
-DIR_GT_TEST        = os.path.join("data", "test", "1st_manual")
+DIR_GT1_TEST        = os.path.join("data", "test", "1st_manual")
+DIR_GT2_TEST        = os.path.join("data", "test", "2nd_manual")
 # NOTA: 'mask' aquí específicamente se refiere a la máscara del campo de visión (FoV mask)
 # Indica qué píxeles están dentro del campo de visión del retinógrafo
 DIR_FOV_TEST       = os.path.join("data", "test", "mask")
@@ -56,7 +55,6 @@ def leer_imagen_rgb(ruta: str) -> np.ndarray:
 
 
 def leer_gt(ruta: str) -> np.ndarray:
-    """Lee el ground truth (segmentación manual de referencia)"""
     gt = cv2.imread(ruta, cv2.IMREAD_GRAYSCALE)
     if gt is None:
         raise FileNotFoundError(f"No se pudo leer el ground truth: {ruta}")
@@ -71,7 +69,6 @@ def leer_fov(ruta: str) -> np.ndarray:
 
 
 def extraer_numero(nombre_base: str) -> str:
-    """Extrae el número inicial del nombre de fichero. Ej: '01_test' -> '01'"""
     m = re.match(r"(\d+)", nombre_base)
     return m.group(1) if m else nombre_base
 
@@ -144,66 +141,74 @@ def predecir_ensemble(modelos, imagen, patch_size=(128, 128), stride=64):
 # ===========================================================================
 # 4. CARGA DE RUTAS DEL CONJUNTO DE TEST
 # Empareja por número inicial: "01_test.tif" <-> "01_manual1.gif" -> clave "01"
+# Ahora carga ambos ground truths (1st_manual y 2nd_manual)
 # ===========================================================================
 
-def cargar_rutas_test(dir_imgs: str, dir_gt: str, dir_fov: str):
-    """Carga rutas de imágenes, ground truth y FoV mask del conjunto de test"""
-    rutas_imgs, rutas_gt, rutas_fov = [], [], []
+def cargar_rutas_test(dir_imgs: str, dir_gt1: str, dir_gt2: str, dir_fov: str):
+    rutas_imgs, rutas_gt1, rutas_gt2, rutas_fov = [], [], [], []
 
     for ext in EXTENSIONES:
-        rutas_imgs += glob.glob(os.path.join(dir_imgs,  ext))
-        rutas_gt  += glob.glob(os.path.join(dir_gt, ext))
-        rutas_fov += glob.glob(os.path.join(dir_fov,   ext))
+        rutas_imgs += glob.glob(os.path.join(dir_imgs,   ext))
+        rutas_gt1  += glob.glob(os.path.join(dir_gt1,  ext))
+        rutas_gt2  += glob.glob(os.path.join(dir_gt2,  ext))
+        rutas_fov  += glob.glob(os.path.join(dir_fov,   ext))
 
     # Indexar por número inicial del fichero
     idx_imgs = {extraer_numero(os.path.splitext(os.path.basename(r))[0]): r for r in rutas_imgs}
-    idx_gt   = {extraer_numero(os.path.splitext(os.path.basename(r))[0]): r for r in rutas_gt}
+    idx_gt1  = {extraer_numero(os.path.splitext(os.path.basename(r))[0]): r for r in rutas_gt1}
+    idx_gt2  = {extraer_numero(os.path.splitext(os.path.basename(r))[0]): r for r in rutas_gt2}
     idx_fov  = {extraer_numero(os.path.splitext(os.path.basename(r))[0]): r for r in rutas_fov}
 
-    numeros_comunes = sorted(set(idx_imgs) & set(idx_gt))
+    numeros_comunes = sorted(set(idx_imgs) & set(idx_gt1) & set(idx_gt2))
     if len(numeros_comunes) == 0:
         raise FileNotFoundError(
             "No se encontraron pares imagen/ground_truth en las carpetas de test.\n"
-            f"  Imagenes en     : {os.path.abspath(dir_imgs)}\n"
-            f"  Ground truth en : {os.path.abspath(dir_gt)}\n"
-            f"  Claves imgs     : {sorted(idx_imgs.keys())}\n"
-            f"  Claves gt       : {sorted(idx_gt.keys())}"
+            f"  Imagenes en      : {os.path.abspath(dir_imgs)}\n"
+            f"  Ground truth 1   : {os.path.abspath(dir_gt1)}\n"
+            f"  Ground truth 2   : {os.path.abspath(dir_gt2)}\n"
+            f"  Claves imgs      : {sorted(idx_imgs.keys())}\n"
+            f"  Claves gt1       : {sorted(idx_gt1.keys())}\n"
+            f"  Claves gt2       : {sorted(idx_gt2.keys())}"
         )
 
     imgs_ord = [idx_imgs[n]          for n in numeros_comunes]
-    gt_ord   = [idx_gt[n]            for n in numeros_comunes]
+    gt1_ord  = [idx_gt1[n]           for n in numeros_comunes]
+    gt2_ord  = [idx_gt2[n]           for n in numeros_comunes]
     fov_ord  = [idx_fov.get(n, None) for n in numeros_comunes]
 
     print(f"[INFO] {len(imgs_ord)} pares de test encontrados.")
-    for n, img, gt in zip(numeros_comunes, imgs_ord, gt_ord):
-        print(f"  [{n}]  {os.path.basename(img)}  <->  {os.path.basename(gt)}")
+    for n, img, gt1, gt2 in zip(numeros_comunes, imgs_ord, gt1_ord, gt2_ord):
+        print(f"  [{n}]  {os.path.basename(img)}  <->  {os.path.basename(gt1)}  |  {os.path.basename(gt2)}")
 
-    return imgs_ord, gt_ord, fov_ord
+    return imgs_ord, gt1_ord, gt2_ord, fov_ord
 
 
 # ===========================================================================
 # 5. EVALUACIÓN PRINCIPAL
 # ===========================================================================
 
-def evaluar(dir_imgs, dir_gt, dir_fov, dir_modelos, dir_salida,
+def evaluar(dir_imgs, dir_gt1, dir_gt2, dir_fov, dir_modelos, dir_salida,
             patch_size=(128, 128), stride=64, umbral=UMBRAL):
 
     modelos = cargar_modelos(dir_modelos)
-    rutas_imgs, rutas_gt, rutas_fov = cargar_rutas_test(dir_imgs, dir_gt, dir_fov)
+    rutas_imgs, rutas_gt1, rutas_gt2, rutas_fov = cargar_rutas_test(dir_imgs, dir_gt1, dir_gt2, dir_fov)
 
-    scores_dice = []
+    scores_dice_promedio = []  # DICE promedio de ambos expertos
+    scores_dice_experto1 = []  # DICE del experto 1
+    scores_dice_experto2 = []  # DICE del experto 2
     scores_precision = []
     scores_recall = []
 
-    for i, (ruta_img, ruta_gt, ruta_fov) in enumerate(
-            zip(rutas_imgs, rutas_gt, rutas_fov)):
+    for i, (ruta_img, ruta_gt1, ruta_gt2, ruta_fov) in enumerate(
+            zip(rutas_imgs, rutas_gt1, rutas_gt2, rutas_fov)):
 
         nombre = os.path.splitext(os.path.basename(ruta_img))[0]
         print(f"\n[{i+1}/{len(rutas_imgs)}] Procesando: {nombre}")
 
-        imagen   = leer_imagen_rgb(ruta_img)
-        gt_mask  = leer_gt(ruta_gt)
-        fov_mask = leer_fov(ruta_fov) if ruta_fov else None
+        imagen    = leer_imagen_rgb(ruta_img)
+        gt1_mask  = leer_gt(ruta_gt1)
+        gt2_mask  = leer_gt(ruta_gt2)
+        fov_mask  = leer_fov(ruta_fov) if ruta_fov else None
 
         mapa_prob    = predecir_ensemble(modelos, imagen, patch_size, stride)
         pred_binaria = (mapa_prob > umbral).astype(np.float32)
@@ -214,20 +219,34 @@ def evaluar(dir_imgs, dir_gt, dir_fov, dir_modelos, dir_salida,
                     fov_mask, (pred_binaria.shape[1], pred_binaria.shape[0]),
                     interpolation=cv2.INTER_NEAREST
                 )
-            pred_eval = pred_binaria * fov_mask
-            gt_eval   = gt_mask      * fov_mask
+            pred_eval  = pred_binaria * fov_mask
+            gt1_eval   = gt1_mask    * fov_mask
+            gt2_eval   = gt2_mask    * fov_mask
         else:
-            pred_eval = pred_binaria
-            gt_eval   = gt_mask
+            pred_eval  = pred_binaria
+            gt1_eval   = gt1_mask
+            gt2_eval   = gt2_mask
 
-        interseccion = np.sum(pred_eval * gt_eval)
-        denominador  = np.sum(pred_eval) + np.sum(gt_eval)
-        dice = 1.0 if denominador == 0 else (2.0 * interseccion + 1e-6) / (denominador + 1e-6)
-        scores_dice.append(dice)
+        # CALCULAR DICE PARA AMBOS EXPERTOS
+        interseccion1 = np.sum(pred_eval * gt1_eval)
+        denominador1  = np.sum(pred_eval) + np.sum(gt1_eval)
+        dice1 = 1.0 if denominador1 == 0 else (2.0 * interseccion1 + 1e-6) / (denominador1 + 1e-6)
+        
+        interseccion2 = np.sum(pred_eval * gt2_eval)
+        denominador2  = np.sum(pred_eval) + np.sum(gt2_eval)
+        dice2 = 1.0 if denominador2 == 0 else (2.0 * interseccion2 + 1e-6) / (denominador2 + 1e-6)
+        
+        # PROMEDIO DE DICE DE AMBOS EXPERTOS
+        dice_promedio = (dice1 + dice2) / 2.0
+        
+        scores_dice_experto1.append(dice1)
+        scores_dice_experto2.append(dice2)
+        scores_dice_promedio.append(dice_promedio)
 
-        # PRECISIÓN Y RECALL
+        # PRECISIÓN Y RECALL (usando promedio de ambos GTs)
         # 1. Aplastamos las imágenes a vectores 1D
-        gt_plano = gt_eval.flatten()
+        gt_promedio = (gt1_eval + gt2_eval) / 2.0
+        gt_plano = (gt_promedio > 0.5).astype(np.float32).flatten()
         pred_plano = pred_eval.flatten()
             
         # 2. Calculamos las métricas (zero_division=0 evita errores si la IA predice todo negro)
@@ -238,19 +257,19 @@ def evaluar(dir_imgs, dir_gt, dir_fov, dir_modelos, dir_salida,
         scores_precision.append(precision)
         scores_recall.append(recall)
 
-        print(f"  DICE Score: {dice:.4f} | Precision: {precision:.4f} | Recall: {recall:.4f}")
+        print(f"  DICE Exp1: {dice1:.4f} | DICE Exp2: {dice2:.4f} | DICE Promedio: {dice_promedio:.4f} | Precision: {precision:.4f} | Recall: {recall:.4f}")
 
         cv2.imwrite(
             os.path.join(dir_salida, f"{nombre}_pred.png"),
             (pred_binaria * 255).astype(np.uint8)
         )
 
-        fig, axes = plt.subplots(1, 3, figsize=(12, 4))
-        fig.suptitle(f"{nombre}  -  DICE: {dice:.4f}", fontsize=13)
-        axes[0].imshow(imagen);               axes[0].set_title("Imagen original"); axes[0].axis("off")
-        axes[1].imshow(gt_mask, cmap="gray"); axes[1].set_title("Ground Truth");    axes[1].axis("off")
-        axes[2].imshow(pred_eval, cmap="gray")
-        axes[2].set_title(f"Prediccion (umbral={umbral})");                         axes[2].axis("off")
+        fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+        fig.suptitle(f"{nombre}  -  DICE Exp1: {dice1:.4f} | Exp2: {dice2:.4f} | Promedio: {dice_promedio:.4f}", fontsize=12)
+        axes[0, 0].imshow(imagen);                        axes[0, 0].set_title("Imagen original");     axes[0, 0].axis("off")
+        axes[0, 1].imshow(gt1_mask, cmap="gray");        axes[0, 1].set_title("GT Experto 1");       axes[0, 1].axis("off")
+        axes[1, 0].imshow(gt2_mask, cmap="gray");        axes[1, 0].set_title("GT Experto 2");       axes[1, 0].axis("off")
+        axes[1, 1].imshow(pred_eval, cmap="gray");       axes[1, 1].set_title(f"Prediccion (umbral={umbral})"); axes[1, 1].axis("off")
         plt.tight_layout()
         plt.savefig(os.path.join(dir_salida, f"{nombre}_comparacion.png"), dpi=100, bbox_inches="tight")
         plt.close(fig)
@@ -259,32 +278,36 @@ def evaluar(dir_imgs, dir_gt, dir_fov, dir_modelos, dir_salida,
     # 6. RESUMEN FINAL
     # ===========================================================================
     nombres_base = [os.path.splitext(os.path.basename(r))[0] for r in rutas_imgs]
-    media_dice   = np.mean(scores_dice)
+    media_dice_exp1 = np.mean(scores_dice_experto1)
+    media_dice_exp2 = np.mean(scores_dice_experto2)
+    media_dice_promedio = np.mean(scores_dice_promedio)
     media_precision = np.mean(scores_precision)
     media_recall = np.mean(scores_recall)
-    std_dice     = np.std(scores_dice)
-    aprobados    = sum(1 for d in scores_dice if d >= 0.75)
+    std_dice = np.std(scores_dice_promedio)
+    aprobados = sum(1 for d in scores_dice_promedio if d >= 0.75)
 
-    print("\n" + "=" * 60)
-    print("  RESULTADOS FINALES - CONJUNTO DE TEST")
-    print("=" * 60)
-    for nombre_base, dice in zip(nombres_base, scores_dice):
-        estado = "OK" if dice >= 0.75 else "!!"
-        print(f"  [{estado}]  {nombre_base}: DICE = {dice:.4f}")
-    print("=" * 60)
-    print(f"  Media DICE       : {media_dice:.4f}")
-    print(f"  Media Precisión  : {media_precision:.4f}")
-    print(f"  Media Recall     : {media_recall:.4f}")
-    print(f"  Desv. tipica     : {std_dice:.4f}")
-    print(f"  Imagenes >= 0.75 : {aprobados}/{len(scores_dice)}")
-    if media_dice >= 0.75:
-        print("  >>> UMBRAL DE 0.75 SUPERADO - PROYECTO APROBADO <<<")
+    print("\n" + "=" * 80)
+    print("  RESULTADOS FINALES - CONJUNTO DE TEST (CON AMBOS EXPERTOS)")
+    print("=" * 80)
+    for nombre_base, dice1, dice2, dice_prom in zip(nombres_base, scores_dice_experto1, scores_dice_experto2, scores_dice_promedio):
+        estado = "OK" if dice_prom >= 0.75 else "!!"
+        print(f"  [{estado}]  {nombre_base}: DICE_Exp1={dice1:.4f} | DICE_Exp2={dice2:.4f} | Promedio={dice_prom:.4f}")
+    print("=" * 80)
+    print(f"  Media DICE (Experto 1) : {media_dice_exp1:.4f}")
+    print(f"  Media DICE (Experto 2) : {media_dice_exp2:.4f}")
+    print(f"  Media DICE (Promedio)  : {media_dice_promedio:.4f}")
+    print(f"  Media Precisión        : {media_precision:.4f}")
+    print(f"  Media Recall           : {media_recall:.4f}")
+    print(f"  Desv. típica           : {std_dice:.4f}")
+    print(f"  Imágenes >= 0.75       : {aprobados}/{len(scores_dice_promedio)}")
+    if media_dice_promedio >= 0.75:
+        print("\n  >>> UMBRAL DE 0.75 SUPERADO - PROYECTO APROBADO <<<")
     else:
-        print(f"  >>> Umbral no alcanzado (faltan {0.75 - media_dice:.4f} puntos) <<<")
-    print("=" * 60)
+        print(f"\n  >>> Umbral no alcanzado (faltan {0.75 - media_dice_promedio:.4f} puntos) <<<")
+    print("=" * 80)
     print(f"\n[INFO] Resultados guardados en '{dir_salida}/'")
 
-    return scores_dice, media_dice
+    return scores_dice_promedio, media_dice_promedio
 
 
 # ===========================================================================
@@ -295,7 +318,8 @@ if __name__ == "__main__":
     print("[INFO] Iniciando evaluacion sobre el conjunto de TEST...")
     evaluar(
         dir_imgs    = DIR_IMAGENES_TEST,
-        dir_gt      = DIR_GT_TEST,
+        dir_gt1     = DIR_GT1_TEST,
+        dir_gt2     = DIR_GT2_TEST,
         dir_fov     = DIR_FOV_TEST,
         dir_modelos = DIR_MODELOS,
         dir_salida  = DIR_PREDICCIONES,
