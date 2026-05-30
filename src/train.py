@@ -10,9 +10,9 @@ from generator import DataGenerator
 from model import construir_unet
 from metrics import dice_coef, bce_dice_loss
 
-img_dir = "data/training/images"
-gt_dir = "data/training/1st_manual"
-models_dir = "models"
+img_dir = os.path.join("data", "training", "images")
+gt_dir = os.path.join("data", "training", "1st_manual")
+models_dir = os.path.join("models")
 
 os.makedirs(models_dir, exist_ok=True)
 
@@ -35,8 +35,8 @@ def get_paths(dir_img, dir_gt):
     gts = []
 
     for ext in exts:
-        imgs += glob.glob(f"{dir_img}/{ext}")
-        gts += glob.glob(f"{dir_gt}/{ext}")
+        imgs += glob.glob(os.path.join(dir_img, ext))
+        gts += glob.glob(os.path.join(dir_gt, ext))
 
     imgs = sorted(set(imgs))
     gts = sorted(set(gts))
@@ -48,7 +48,7 @@ def get_paths(dir_img, dir_gt):
     return np.array(imgs), np.array(gts)
 
 def get_callbacks(fold):
-    ruta_modelo = f"{models_dir}/fold_{fold}.keras"
+    ruta_modelo = os.path.join(models_dir, f"fold_{fold}.keras")
     
     return [
         EarlyStopping(monitor="val_dice_coef", mode="max", patience=patience, restore_best_weights=True, verbose=1),

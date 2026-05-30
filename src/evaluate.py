@@ -14,17 +14,17 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 from metrics import dice_coef, dice_loss, bce_dice_loss
 
-img_dir = "data/test/images"
-gt1_dir = "data/test/1st_manual"
-gt2_dir = "data/test/2nd_manual"
-fov_dir = "data/test/mask"
-models_dir = "models"
-out_dir = "predictions"
+img_dir = os.path.join("data", "test", "images")
+gt1_dir = os.path.join("data", "test", "1st_manual")
+gt2_dir = os.path.join("data", "test", "2nd_manual")
+fov_dir = os.path.join("data", "test", "mask")
+models_dir = os.path.join("models")
+out_dir = os.path.join("predictions")
 
 os.makedirs(out_dir, exist_ok=True)
 
 patch_size = (128, 128)
-umbral = 0.50
+umbral = 0.40 
 input_shape = (128, 128, 3)
 
 def leer_img(ruta):
@@ -86,7 +86,7 @@ def predecir_parches(modelo, img, p_size=(128, 128), stride=64):
     return acumulador / contador
 
 def cargar_modelos(carpeta):
-    rutas = sorted(glob.glob(f"{carpeta}/fold_*.keras"))
+    rutas = sorted(glob.glob(os.path.join(carpeta, "fold_*.keras")))
     if not rutas:
         raise FileNotFoundError("No se han encontrado modelos. Ejecuta train.py primero.")
     
@@ -109,10 +109,11 @@ def obtener_rutas_test():
     imgs, gt1s, gt2s, fovs = [], [], [], []
 
     for ext in exts:
-        imgs += glob.glob(f"{img_dir}/{ext}")
-        gt1s += glob.glob(f"{gt1_dir}/{ext}")
-        gt2s += glob.glob(f"{gt2_dir}/{ext}")
-        fovs += glob.glob(f"{fov_dir}/{ext}")
+        # Aquí está la corrección: usar os.path.join para cada búsqueda
+        imgs += glob.glob(os.path.join(img_dir, ext))
+        gt1s += glob.glob(os.path.join(gt1_dir, ext))
+        gt2s += glob.glob(os.path.join(gt2_dir, ext))
+        fovs += glob.glob(os.path.join(fov_dir, ext))
 
     idx_imgs = {obtener_numero(os.path.basename(r)): r for r in imgs}
     idx_gt1 = {obtener_numero(os.path.basename(r)): r for r in gt1s}
@@ -159,6 +160,16 @@ def run_evaluation():
         prob = ensemble_predict(modelos, img, patch_size, 64)
         pred = (prob > umbral).astype(np.float32)
 
+        # Filtro de limpiado solo si el umbral es menor a 0.5, para evitar eliminar verdaderos positivos en casos difíciles
+        if umbral < 0.5:
+            pred_uint8 = (pred * 255).astype(np.uint8)
+            num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(pred_uint8, connectivity=8)
+            pred_limpia = np.zeros_like(pred)
+            for j in range(1, num_labels):
+                if stats[j, cv2.CC_STAT_AREA] >= 10:  
+                    pred_limpia[labels == j] = 1.0
+            pred = pred_limpia
+
         if fov is not None:
             if fov.shape != pred.shape:
                 fov = cv2.resize(fov, (pred.shape[1], pred.shape[0]), interpolation=cv2.INTER_NEAREST)
@@ -174,8 +185,8 @@ def run_evaluation():
         res_dice2.append(d2)
         res_dice_prom.append(d_prom)
 
-        gt_prom = (gt1 + gt2) / 2.0
-        gt_plano = (gt_prom > 0.5).astype(np.float32).flatten()
+        gt_union = np.maximum(gt1, gt2)
+        gt_plano = gt_union.flatten()
         pred_plano = pred.flatten()
             
         prec = precision_score(gt_plano, pred_plano, zero_division=0)
@@ -186,7 +197,7 @@ def run_evaluation():
 
         print(f"  Exp1: {d1:.4f} | Exp2: {d2:.4f} | Media: {d_prom:.4f} | Prec: {prec:.4f} | Rec: {rec:.4f}")
 
-        cv2.imwrite(f"{out_dir}/{nombre}_pred.png", (pred * 255).astype(np.uint8))
+        cv2.imwrite(os.path.join(out_dir, f"{nombre}_pred.png"), (pred * 255).astype(np.uint8))
 
         fig, axes = plt.subplots(2, 2, figsize=(10, 10))
         fig.suptitle(f"{nombre} - DICE Media: {d_prom:.4f}")
@@ -208,7 +219,7 @@ def run_evaluation():
         axes[1, 1].axis("off")
         
         plt.tight_layout()
-        plt.savefig(f"{out_dir}/{nombre}_comparacion.png", dpi=100, bbox_inches="tight")
+        plt.savefig(os.path.join(out_dir, f"{nombre}_comparacion.png"), dpi=100, bbox_inches="tight")
         plt.close(fig)
 
     print("\n--- RESULTADOS FINALES ---")
