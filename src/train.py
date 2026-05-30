@@ -2,7 +2,7 @@ import os
 import glob
 import numpy as np
 import tensorflow as tf
-from tensorflow import keras
+import keras
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras.optimizers import Adam
 from sklearn.model_selection import KFold
