@@ -227,7 +227,7 @@ def run_evaluation():
     
     for nom, d1, d2, d_prom in zip(nombres, res_dice1, res_dice2, res_dice_prom):
         estado = "OK" if d_prom >= 0.75 else "FAIL"
-        print(f"[{estado}] {nom} -> Exp1: {d1:.4f} | Exp2: {d2:.4f} | Media: {d_prom:.4f}")
+        print(f"[{estado}] {nom} -> DICE Exp1: {d1:.4f} | DICE Exp2: {d2:.4f} | DICE Media: {d_prom:.4f}")
         
     media_total = np.mean(res_dice_prom)
     aprobados = sum(1 for d in res_dice_prom if d >= 0.75)
