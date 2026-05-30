@@ -35,7 +35,7 @@ DIR_MODELOS        = "models"
 DIR_PREDICCIONES   = "predictions"
 
 PATCH_SIZE         = (128, 128)
-UMBRAL             = 0.5
+UMBRAL             = 0.50
 INPUT_SHAPE        = (128, 128, 3)
 EXTENSIONES        = ["*.tif", "*.png", "*.jpg", "*.bmp", "*.gif"]
 
@@ -51,6 +51,13 @@ def leer_imagen_rgb(ruta: str) -> np.ndarray:
     if img is None:
         raise FileNotFoundError(f"No se pudo leer la imagen: {ruta}")
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    
+    # APLICAR FILTRO CLAHE (Igual que en el entrenamiento)
+    img_lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    img_lab[:, :, 0] = clahe.apply(img_lab[:, :, 0])
+    img = cv2.cvtColor(img_lab, cv2.COLOR_LAB2RGB)
+    
     return img.astype(np.float32) / 255.0
 
 
