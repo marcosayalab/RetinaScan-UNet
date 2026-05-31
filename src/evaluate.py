@@ -167,7 +167,7 @@ def run_evaluation():
             num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(pred_uint8, connectivity=8)
             pred_limpia = np.zeros_like(pred)
             for j in range(1, num_labels):
-                if stats[j, cv2.CC_STAT_AREA] >= 10:  
+                if stats[j, cv2.CC_STAT_AREA] >= 0.5:  
                     pred_limpia[labels == j] = 1.0
             pred = pred_limpia
 
