@@ -158,6 +158,7 @@ def run_evaluation():
         fov = leer_mascara(r_fov) if r_fov else None
 
         prob = ensemble_predict(modelos, img, patch_size, 64)
+        
         pred = (prob > umbral).astype(np.float32)
 
         # Filtro de limpiado solo si el umbral es menor a 0.5, para evitar eliminar verdaderos positivos en casos difíciles

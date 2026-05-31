@@ -1,7 +1,6 @@
 import numpy as np
 import cv2
 import random
-#from tensorflow import keras
 import keras
 
 class DataGenerator(keras.utils.PyDataset):
@@ -24,15 +23,10 @@ class DataGenerator(keras.utils.PyDataset):
         self.patch_size = patch_size
 
     def __len__(self):
-        """
-        Calcula cuántos lotes (batches) componen una época entera.
-        """
         return int(np.floor(len(self.rutas_imagenes) / self.batch_size))
 
     def __getitem__(self, index):
-        """
-        Se ejecuta cada vez que la red (U-Net) pide un nuevo lote de datos para entrenar.
-        """
+        
         # 1. Extraer las rutas específicas para este lote
         rutas_batch_x = self.rutas_imagenes[index * self.batch_size : (index + 1) * self.batch_size]
         rutas_batch_y = self.rutas_gt[index * self.batch_size : (index + 1) * self.batch_size]
@@ -46,9 +40,6 @@ class DataGenerator(keras.utils.PyDataset):
         # 3. Procesar cada imagen del lote actual
         for i, (ruta_img, ruta_gt) in enumerate(zip(rutas_batch_x, rutas_batch_y)):
             
-            # 1: Leer las imágenes del disco duro
-            # Pista: Usa cv2.imread(). ¡Cuidado! OpenCV lee en BGR, quizás quieras pasarlo a RGB.
-            # Para el ground truth, léelo en escala de grises (cv2.IMREAD_GRAYSCALE).
             ojo_bgr = cv2.imread(ruta_img)
             if ojo_bgr is None:
                 raise FileNotFoundError(f"No se pudo cargar la imagen: {ruta_img}. Verifica que la ruta existe.")
@@ -61,23 +52,21 @@ class DataGenerator(keras.utils.PyDataset):
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
             # Se lo aplicamos solo al canal de luminosidad (L) para no distorsionar colores
             ojo_lab[:, :, 0] = clahe.apply(ojo_lab[:, :, 0])
-            # Volvemos a RGB
             ojo_rgb = cv2.cvtColor(ojo_lab, cv2.COLOR_LAB2RGB)
 
+            # Para el ground truth, se lee en escala de grises (cv2.IMREAD_GRAYSCALE).
             gt_array = cv2.imread(ruta_gt, cv2.IMREAD_GRAYSCALE)
             if gt_array is None:
                 raise FileNotFoundError(f"No se pudo cargar el ground truth: {ruta_gt}. Verifica que la ruta existe.")
 
-            # 2: Normalización
-            # Las imágenes vienen con píxeles de 0 a 255. Divídelas para que estén entre 0.0 y 1.0.
+            
             img_normalizada = ojo_rgb / 255.0
             gt_normalizada = gt_array / 255.0
 
-            # 3: El Parcheado (Troceado coordinado)
-            # Tienes que generar unas coordenadas X e Y aleatorias.
-            # Asegúrate de que las coordenadas no se salgan de los bordes de la imagen original
-            # al sumarle los 128 píxeles del patch_size.
-            # Luego, recorta EXACTAMENTE las mismas coordenadas tanto en 'img' como en 'gt'.
+            # Parcheado 
+            # Generar unas coordenadas X e Y aleatorias.
+            # Asegurarse de que las coordenadas no se salgan de los bordes de la imagen original al sumarle los 128 píxeles del patch_size.
+            # Recortar EXACTAMENTE las mismas coordenadas tanto en 'img' como en 'gt'.
 
             alto_original, ancho_original = img_normalizada.shape[:2]
             limite_y = alto_original - self.patch_size[0]
@@ -89,10 +78,9 @@ class DataGenerator(keras.utils.PyDataset):
             parche_img = img_normalizada[y_random : y_random + self.patch_size[0], x_random : x_random + self.patch_size[1]]
             parche_gt = gt_normalizada[y_random : y_random + self.patch_size[0], x_random : x_random + self.patch_size[1]]
 
-            # 4: Data Augmentation 
+            # Data Augmentation 
             # Volteo horizontal
-            # Genera un número aleatorio. Si es mayor que 0.5, dale la vuelta horizontalmente (cv2.flip)
-            # tanto al parche de la imagen como al del ground truth.
+            
             if random.random() > 0.5: 
                 parche_img = cv2.flip(parche_img, 1)  # 1 para flip horizontal
                 parche_gt = cv2.flip(parche_gt, 1)
@@ -118,11 +106,9 @@ class DataGenerator(keras.utils.PyDataset):
                 ruido = np.random.normal(0, 0.05, parche_img.shape)  # Media=0, Desviación=0.05
                 parche_img = np.clip(parche_img + ruido, 0.0, 1.0)
             
-            # 5. Guardar los parches finales en las matrices del batch
+            # Guardar los parches finales en las matrices del batch
             X[i,] = parche_img
             
-            # OpenCV devuelve matrices de (128, 128) al leer en escala de grises. 
-            # Keras necesita (128, 128, 1). Usamos np.expand_dims para añadir esa dimensión extra.
             y[i,] = np.expand_dims(parche_gt, axis=-1)
 
         return X, y

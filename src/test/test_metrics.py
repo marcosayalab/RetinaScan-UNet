@@ -9,7 +9,7 @@ from metrics import dice_coef, dice_loss
 print("Inicializando Test Unitario de Métricas...\n")
 
 # 1. Creamos una "máscara del médico" de juguete (2x2 píxeles)
-# Imagina que la fila de arriba es vena (1.0) y la de abajo es fondo (0.0)
+# Suponemos que la fila de arriba es vena (1.0) y la de abajo es fondo (0.0)
 y_true_np = np.array([[[[1.0], [1.0]], 
                        [[0.0], [0.0]]]]) 
 y_true = tf.constant(y_true_np, dtype=tf.float32)
@@ -21,7 +21,7 @@ y_pred_perfect = tf.constant(y_true_np, dtype=tf.float32)
 y_pred_bad_np = np.zeros_like(y_true_np)
 y_pred_bad = tf.constant(y_pred_bad_np, dtype=tf.float32)
 
-# 4. Ejecutamos tus funciones
+# 4. Ejecutamos las funciones
 print("-" * 50)
 print("ESCENARIO A: Predicción Perfecta")
 # Usamos .numpy() al final solo para extraer el número del tensor y poder imprimirlo bonito
