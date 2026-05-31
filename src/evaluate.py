@@ -158,8 +158,10 @@ def run_evaluation():
         fov = leer_mascara(r_fov) if r_fov else None
 
         prob = ensemble_predict(modelos, img, patch_size, 64)
+
+        prob_suave = cv2.GaussianBlur(prob, (3, 3), 0)
         
-        pred = (prob > umbral).astype(np.float32)
+        pred = (prob_suave > umbral).astype(np.float32)
 
         # Filtro de limpiado solo si el umbral es menor a 0.5, para evitar eliminar verdaderos positivos en casos difíciles
         if umbral < 0.5:
@@ -167,7 +169,7 @@ def run_evaluation():
             num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(pred_uint8, connectivity=8)
             pred_limpia = np.zeros_like(pred)
             for j in range(1, num_labels):
-                if stats[j, cv2.CC_STAT_AREA] >= 0.5:  
+                if stats[j, cv2.CC_STAT_AREA] >= 10:  
                     pred_limpia[labels == j] = 1.0
             pred = pred_limpia
 
