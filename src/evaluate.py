@@ -24,7 +24,6 @@ out_dir = os.path.join("predictions")
 os.makedirs(out_dir, exist_ok=True)
 
 patch_size = (128, 128)
-umbral = 0.40 
 input_shape = (128, 128, 3)
 
 def leer_img(ruta):
@@ -100,9 +99,20 @@ def cargar_modelos(carpeta):
 
 def ensemble_predict(modelos, img, p_size=(128, 128), stride=64):
     suma = np.zeros(img.shape[:2], dtype=np.float32)
+    
+    img_h = cv2.flip(img, 1)
+    img_v = cv2.flip(img, 0)
+    
     for m in modelos:
         suma += predecir_parches(m, img, p_size, stride)
-    return suma / len(modelos)
+        
+        p_h = predecir_parches(m, img_h, p_size, stride)
+        suma += cv2.flip(p_h, 1)
+        
+        p_v = predecir_parches(m, img_v, p_size, stride)
+        suma += cv2.flip(p_v, 0)
+        
+    return suma / (len(modelos) * 3.0)
 
 def obtener_rutas_test():
     exts = ["*.tif", "*.png", "*.jpg", "*.bmp", "*.gif"]
@@ -159,19 +169,29 @@ def run_evaluation():
 
         prob = ensemble_predict(modelos, img, patch_size, 64)
 
-        prob_suave = cv2.GaussianBlur(prob, (3, 3), 0)
+        prob_uint8 = (prob * 255).astype(np.uint8)
         
-        pred = (prob_suave > umbral).astype(np.float32)
+        
+        umbral_otsu_val, _ = cv2.threshold(prob_uint8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        umbral_real = umbral_otsu_val / 255.0
+        
+        umbral_ajustado = max(0, umbral_real - 0.040)
+        _, pred_uint8 = cv2.threshold(prob_uint8, int(umbral_ajustado * 255), 255, cv2.THRESH_BINARY)
+        print(f"    -> Umbral Otsu: {umbral_real:.4f} | Ajustado: {umbral_ajustado:.4f}")
+        
+        pred = (pred_uint8 / 255.0).astype(np.float32)
+        
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        pred_uint8 = cv2.morphologyEx(pred_uint8, cv2.MORPH_CLOSE, kernel, iterations=1)
+        pred = (pred_uint8 / 255.0).astype(np.float32)
 
-        # Filtro de limpiado solo si el umbral es menor a 0.5, para evitar eliminar verdaderos positivos en casos difíciles
-        if umbral < 0.5:
-            pred_uint8 = (pred * 255).astype(np.uint8)
-            num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(pred_uint8, connectivity=8)
-            pred_limpia = np.zeros_like(pred)
-            for j in range(1, num_labels):
-                if stats[j, cv2.CC_STAT_AREA] >= 10:  
-                    pred_limpia[labels == j] = 1.0
-            pred = pred_limpia
+        # Filtro de limpiado
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(pred_uint8, connectivity=8)
+        pred_limpia = np.zeros_like(pred)
+        for j in range(1, num_labels):
+            if stats[j, cv2.CC_STAT_AREA] >= 2:  
+                pred_limpia[labels == j] = 1.0
+        pred = pred_limpia
 
         if fov is not None:
             if fov.shape != pred.shape:
@@ -218,7 +238,7 @@ def run_evaluation():
         axes[1, 0].axis("off")
         
         axes[1, 1].imshow(pred, cmap="gray")
-        axes[1, 1].set_title(f"Predicción (umbral {umbral})")
+        axes[1, 1].set_title(f"Predicción (umbral {umbral_real:.4f})")
         axes[1, 1].axis("off")
         
         plt.tight_layout()
