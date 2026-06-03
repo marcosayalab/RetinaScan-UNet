@@ -119,7 +119,6 @@ def obtener_rutas_test():
     imgs, gt1s, gt2s, fovs = [], [], [], []
 
     for ext in exts:
-        # Aquí está la corrección: usar os.path.join para cada búsqueda
         imgs += glob.glob(os.path.join(img_dir, ext))
         gt1s += glob.glob(os.path.join(gt1_dir, ext))
         gt2s += glob.glob(os.path.join(gt2_dir, ext))
