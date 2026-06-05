@@ -2,9 +2,7 @@ import tensorflow as tf
 from tensorflow.keras import layers, models
 
 def bloque_convolucion_doble(x, num_filtros):
-    """
-    Aplica dos capas convolucionales consecutivas (estándar en la U-Net).
-    """
+    
     # Primera convolución
     x = layers.Conv2D(num_filtros, kernel_size=3, padding="same", 
                       activation="relu", kernel_initializer="he_normal")(x)
@@ -14,14 +12,11 @@ def bloque_convolucion_doble(x, num_filtros):
     return x
 
 def construir_unet(input_shape=(128, 128, 3)):
-    """
-    Construye el modelo U-Net completo.
-    """
+
     inputs = layers.Input(shape=input_shape)
     
-    # ----------------------------------------------------
     # 1. RUTA DE CONTRACCIÓN (ENCODER)
-    # ----------------------------------------------------
+    
     # Bloque 1
     c1 = bloque_convolucion_doble(inputs, 16)
     p1 = layers.MaxPooling2D(pool_size=(2, 2))(c1)
@@ -38,14 +33,12 @@ def construir_unet(input_shape=(128, 128, 3)):
     c4 = bloque_convolucion_doble(p3, 128)
     p4 = layers.MaxPooling2D(pool_size=(2, 2))(c4)
     
-    # ----------------------------------------------------
-    # 2. CUELLO DE BOTELLA (BOTTLENECK)
-    # ----------------------------------------------------
+    # 2. CUELLO DE BOTELLA (BOTTLENECK) (Parte más profunda de la U-Net)
+
     c5 = bloque_convolucion_doble(p4, 256)
     
-    # ----------------------------------------------------
     # 3. RUTA DE EXPANSIÓN (DECODER)
-    # ----------------------------------------------------
+
     # Bloque 6 (Sube de nivel desde c5 y concatena con c4)
     u6 = layers.Conv2DTranspose(128, kernel_size=2, strides=(2, 2), padding="same")(c5)
     u6 = layers.concatenate([u6, c4])
@@ -66,15 +59,14 @@ def construir_unet(input_shape=(128, 128, 3)):
     u9 = layers.concatenate([u9, c1])
     c9 = bloque_convolucion_doble(u9, 16)
     
-    # ----------------------------------------------------
     # 4. CAPA DE SALIDA
-    # ----------------------------------------------------
+
     # Una sola neurona/filtro con activación Sigmoide para segmentación binaria
     outputs = layers.Conv2D(1, kernel_size=1, padding="same", activation="sigmoid")(c9)
     
     model = models.Model(inputs=[inputs], outputs=[outputs], name="UNet_Segmentacion_Medica")
     return model
 
-# Para inicializar y comprobar el modelo:
+# Inicializar y comprobar el modelo:
 modelo_unet = construir_unet(input_shape=(128, 128, 3))
 modelo_unet.summary()

@@ -4,32 +4,32 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import matplotlib.pyplot as plt
 
-# Importamos el generador (del archivo generator.py)
 from generator import DataGenerator
-# Importamos EL MODELO (del archivo model.py)
 from model import construir_unet
 
-# 1. Definimos las rutas de prueba (saliendo de src/ hacia data/)
+# 1. Definimos las rutas de prueba (saliendo de src/test hacia data en raíz)
+# NOTA: 'gt' = Ground Truth (verdad fundamental)
+# Representa las segmentaciones manuales de referencia anotadas por expertos
 rutas_img_prueba = [
-    "../data/training/images/21_training.tif", 
-    "../data/training/images/22_training.tif"
+    "../../data/training/images/21_training.tif", 
+    "../../data/training/images/22_training.tif"
 ]
-rutas_mask_prueba = [
-    "../data/training/1st_manual/21_manual1.gif", 
-    "../data/training/1st_manual/22_manual1.gif"
+rutas_gt_prueba = [
+    "../../data/training/1st_manual/21_manual1.gif", 
+    "../../data/training/1st_manual/22_manual1.gif"
 ]
 
 print("Inicializando el motor de datos...")
-# 2. Instanciamos tu generador
+# 2. Instanciamos el generador
 generador_prueba = DataGenerator(
     rutas_imagenes=rutas_img_prueba, 
-    rutas_mascaras=rutas_mask_prueba, 
+    rutas_gt=rutas_gt_prueba, 
     batch_size=2, 
     patch_size=(128, 128)
 )
 
 print("Construyendo la red neuronal de Lorenzo...")
-# 3. Construimos el modelo (Ojo: TensorFlow puede soltar avisos en la terminal aquí, es normal)
+# 3. Construimos el modelo (Ojo: TensorFlow suele soltar avisos en la terminal aquí)
 modelo_prueba = construir_unet(input_shape=(128, 128, 3))
 
 print("¡Extrayendo lote y haciendo predicción!")

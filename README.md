@@ -1,234 +1,527 @@
 # Retinal Vessel Segmentation using Keras 3 and U-Net
 
-An advanced deep learning pipeline developed for the **Inteligencia Artificial** course (*Artificial Intelligence for Software Engineering*) at the **University of Seville** (Academic Year 2025/2026).
+An advanced deep learning pipeline for automated retinal vessel segmentation, developed for the **Inteligencia Artificial** course (*Artificial Intelligence for Software Engineering*) at the **University of Seville** (Academic Year 2025/2026).
 
-This project implements a fully customized convolutional neural network based on the **U-Net** architecture to segment blood vessels in retinal fundus images using the benchmark **DRIVE 2004** dataset.
+This project implements a custom **U-Net** architecture trained through **5-Fold Cross-Validation** to segment retinal blood vessels in fundus images using the benchmark **DRIVE 2004** dataset. The final inference pipeline incorporates **Test-Time Augmentation (TTA)**, **Adaptive Otsu Thresholding**, and **Morphological Post-Processing** to maximize segmentation quality and robustness.
 
 ---
 
 # 🌟 Project Overview & Clinical Context
 
-Automated segmentation of retinal blood vessels is a critical task in computer-aided diagnosis and vision-based healthcare.
+Automated retinal vessel segmentation is a fundamental task in computer-aided diagnosis and vision-based healthcare.
 
-Delimiting these vascular structures with pixel-level precision provides essential quantitative biomarkers used by clinical experts to monitor and diagnose major systemic and ophthalmologic pathologies:
+Accurate extraction of vascular structures provides quantitative biomarkers that ophthalmologists use to monitor and diagnose several diseases:
 
-* **Diabetic Retinopathy:** Detecting microaneurysms and abnormal neovascularization.
-* **Hypertensive Retinopathy:** Measuring arteriolar narrowing and arteriovenous (AV) nicking.
-* **Glaucoma & Macular Degeneration:** Assessing changes in optic disc topography and overall vascular health.
+- **Diabetic Retinopathy:** Detection of microaneurysms and abnormal neovascularization.
+- **Hypertensive Retinopathy:** Analysis of arteriolar narrowing and arteriovenous (AV) nicking.
+- **Glaucoma:** Evaluation of vascular changes related to optic nerve damage.
+- **Age-Related Macular Degeneration (AMD):** Assessment of retinal vascular integrity.
 
-This repository addresses the problem as a binary pixel classification challenge. Since medical datasets are notoriously small due to the high cost of expert annotations, this solution leverages:
+This repository addresses the problem as a binary semantic segmentation task where each pixel is classified as either vessel or background.
 
-* Data augmentation
-* Patching strategies
-* Symmetric skip connections
+Because medical imaging datasets are typically small and expensive to annotate, the project combines:
 
-to achieve high-fidelity segmentations under tight data constraints without requiring high-end GPU clusters.
+- Data augmentation
+- Patch-based training
+- Skip-connected encoder-decoder architectures
+- Cross-validation
+- Advanced inference post-processing
+
+to achieve high-quality vessel extraction while remaining computationally affordable.
 
 ---
 
 # 📊 Dataset Specification: DRIVE 2004
 
-The **Digital Retinal Images for Vessel Extraction (DRIVE 2004)** dataset is an industry benchmark composed of:
+The **Digital Retinal Images for Vessel Extraction (DRIVE 2004)** dataset is one of the most widely used benchmarks for retinal vessel segmentation.
 
-* **Total Samples:** 40 high-resolution digital fundus photographs (`584 × 565` pixels).
-* **Training Set (20 Images):**
+## Dataset Composition
 
-  * Includes a Field of View (FoV) mask.
-  * Includes one definitive manual segmentation by an ophthalmic expert.
-* **Test Set (20 Images):**
+- **Total Images:** 40 retinal fundus photographs
+- **Resolution:** `584 × 565` pixels
+- **Training Set:** 20 images
+- **Testing Set:** 20 images
 
-  * Includes a Field of View (FoV) mask.
-  * Includes **two independent manual segmentations** produced by different specialists to measure inter-expert variability.
+## Available Annotations
 
-The manual segmentations act as the absolute **Ground Truth** for training, optimization, and evaluation.
+### Training Images
+
+Each image includes:
+
+- Original RGB fundus image
+- Field of View (FoV) mask
+- Expert manual vessel segmentation
+
+### Test Images
+
+Each image includes:
+
+- Original RGB fundus image
+- Field of View (FoV) mask
+- Two independent expert segmentations
+
+The second annotation allows measuring **inter-observer variability**, providing a realistic upper-bound reference for algorithm performance.
 
 ---
 
 # ⚙️ Methodology & Architecture Pipeline
 
-To enable efficient training on standard personal computers without dedicated GPUs, the pipeline shifts computational effort toward smart preprocessing and real-time generation.
-
-## 1. Advanced Preprocessing & Spatial Adjustments
-
-* **Matrix Patching:**
-  High-resolution fundus images are divided into smaller sub-images (patches such as `128 × 128` or `256 × 256` pixels). This significantly increases the number of samples while reducing RAM/VRAM usage.
-
-* **Zero Padding:**
-  Dynamic padding is applied before patch extraction to ensure compatibility with encoder-decoder downsampling operations. Padding is removed during reconstruction.
-
-* **Intensity Scaling:**
-  Pixel matrices are normalized to the `[0.0, 1.0]` range by dividing values by `255`.
+The pipeline is designed to run efficiently on standard consumer hardware while maintaining competitive segmentation performance.
 
 ---
 
-## 2. On-The-Fly Custom Data Generation
+## 1. Advanced Preprocessing & Spatial Adjustments
 
-A specialized `DataGenerator` class inheriting from Keras sequence utilities was implemented.
+### Matrix Patching
 
-Features include:
+High-resolution retinal images are divided into smaller patches (e.g. `128×128` or `256×256` pixels).
 
-* Real-time patch loading
-* Normalization
-* Geometric data augmentation:
+Benefits:
 
-  * Horizontal/vertical flips
-  * Random rotations
-  * Contrast scaling
+- Increases effective dataset size
+- Reduces memory requirements
+- Enables larger batch sizes
+- Improves training stability
 
-This approach prevents memory saturation during training.
+### Zero Padding
+
+Images are dynamically padded before patch extraction to ensure dimensions remain compatible with encoder-decoder downsampling operations.
+
+Padding is removed during final reconstruction.
+
+### Intensity Normalization
+
+Input pixels are scaled to:
+
+```text
+[0.0, 1.0]
+```
+
+through division by `255`.
+
+---
+
+## 2. On-The-Fly Data Generation & Augmentation
+
+A custom `DataGenerator` derived from Keras sequence utilities performs:
+
+- Dynamic patch loading
+- Real-time normalization
+- Batch generation
+
+### Applied Augmentations
+
+- Horizontal flips
+- Vertical flips
+- Random rotations
+- Contrast perturbations
+
+This strategy increases dataset diversity while keeping RAM usage low.
 
 ---
 
 ## 3. Symmetric U-Net Architecture
 
-The model is implemented using the **Keras Functional API**.
+The network is implemented using the **Keras Functional API**.
 
 ### Contracting Path (Encoder)
 
-Repeated blocks composed of:
+Each encoder block contains:
 
-* Two `3×3 Conv2D` layers with ReLU activation
-* One `2×2 MaxPooling2D` layer
+- Two `3×3 Conv2D` layers with ReLU activation
+- He initialization
+- One `2×2 MaxPooling2D` layer
 
-This path extracts semantic information while reducing spatial dimensions.
+Purpose:
+
+- Extract semantic information
+- Increase receptive field
+- Reduce spatial dimensions
 
 ### Expanding Path (Decoder)
 
-Uses:
+The decoder uses:
 
-* `UpSampling2D` or `Conv2DTranspose`
-* Followed by `3×3` convolutional layers
+- `UpSampling2D` or `Conv2DTranspose`
+- Skip-connections
+- Additional convolutional refinement
 
-This path restores spatial resolution and refines localization.
+Purpose:
+
+- Recover spatial resolution
+- Improve localization accuracy
 
 ### Skip Connections
 
-`Concatenate` layers transfer high-resolution features directly from encoder blocks to decoder blocks, preserving:
+Feature maps from encoder layers are directly concatenated with decoder layers using:
 
-* Thin vessel structures
-* Edge information
-* Fine vascular boundaries
+```python
+Concatenate()
+```
+
+Benefits:
+
+- Preservation of thin vessels
+- Sharper boundaries
+- Better reconstruction of capillary structures
 
 ---
 
 ## 4. Robust 5-Fold Cross-Validation Training
 
-To maximize generalization from the limited dataset:
+Given the small dataset size, model robustness is increased through:
 
-* A **5-Fold Cross-Validation** strategy is used.
-* Five independent model configurations are trained.
-* Models are saved as native `.keras` artifacts.
+### Cross-Validation Strategy
 
-Training configuration:
+- 5 independent folds
+- Training/validation rotation
+- Reduced sampling bias
 
-* **Optimizer:** Adam
-* **Loss Function:** Binary Cross-Entropy
-* **Callback:** EarlyStopping
+### Training Configuration
 
-Early stopping monitors validation performance to reduce overfitting.
+- **Optimizer:** Adam
+- **Loss Function:** Binary Cross-Entropy
+- **Framework:** Keras 3 / TensorFlow
+- **Callback:** EarlyStopping
+
+### Output
+
+Five trained models are generated:
+
+```text
+fold_1.keras
+fold_2.keras
+fold_3.keras
+fold_4.keras
+fold_5.keras
+```
+
+These models can later be evaluated individually or combined as an ensemble.
+
+---
+
+# 🔬 Advanced Inference Pipeline
+
+Unlike a standard U-Net implementation, the final prediction workflow integrates several post-processing techniques.
+
+## Test-Time Augmentation (TTA)
+
+For each image, predictions are computed on:
+
+- Original image
+- Horizontally flipped image
+- Vertically flipped image
+
+Predictions are transformed back and averaged.
+
+Benefits:
+
+- Reduces prediction variance
+- Improves robustness
+- Produces smoother probability maps
+
+---
+
+## Adaptive Otsu Thresholding
+
+Instead of using a fixed threshold (e.g. 0.5), the system computes an adaptive threshold using Otsu's method.
+
+Advantages:
+
+- Adapts to illumination differences
+- Handles varying vessel contrast
+- Improves vessel/background separation
+
+A sensitivity offset is applied to better preserve thin capillaries.
+
+---
+
+## Morphological Post-Processing
+
+After binarization, morphological operations are applied.
+
+### Elliptical Closing
+
+Used to:
+
+- Reconnect fragmented vessels
+- Fill tiny discontinuities
+- Preserve anatomical vessel shapes
+
+without introducing excessive artifacts.
 
 ---
 
 # 📐 Performance Evaluation: Dice Coefficient
 
-Traditional metrics such as `Accuracy` are heavily biased in medical segmentation due to severe class imbalance.
+Medical image segmentation datasets are highly imbalanced because vessel pixels represent only a small fraction of the image.
 
-Therefore, this project uses the **Sørensen–Dice Coefficient (DICE Score)**:
+For this reason, traditional metrics such as Accuracy are often misleading.
+
+The project evaluates segmentation quality using the **Sørensen–Dice Coefficient**:
 
 ```math
-Dice Score = \frac{2 \times |Y \cap \hat{Y}|}{|Y| + |\hat{Y}|}
+Dice = \frac{2 \times |Y \cap \hat{Y}|}{|Y| + |\hat{Y}|}
 ```
 
 Where:
 
-* `Y` → Manual ground truth mask
-* `Ŷ` → Predicted segmentation mask
+- `Y` = Ground Truth segmentation
+- `Ŷ` = Predicted segmentation
 
-## Performance Targets
+A Dice score of:
 
-The pipeline must achieve the following average DICE scores:
-
-* **Vs. Expert Clinician 1:** `≥ 0.78`
-* **Vs. Expert Clinician 2:** `≥ 0.74`
-* **Combined Mean Target:** `≥ 0.75`
+- **1.0** → Perfect overlap
+- **0.0** → No overlap
 
 ---
 
-# 📂 Repository Layout
+## Target Performance
+
+| Evaluation | Target Dice Score |
+|------------|------------------|
+| Expert 1 | ≥ 0.78 |
+| Expert 2 | ≥ 0.74 |
+| Combined Mean | ≥ 0.75 |
+
+These values align with the academic objectives established for the project.
+
+---
+
+# 📂 Repository Structure
 
 ```text
+RetinaScan-UNet/
+│
+├── .gitignore
+├── LICENSE
+├── README.md
+│
 ├── data/
-│   ├── training/          # DRIVE training images and masks
-│   └── test/              # DRIVE test images and expert masks
+│   ├── training/
+│   │   ├── images/         # Training fundus images
+│   │   ├── 1st_manual/     # Expert vessel annotations
+│   │   └── mask/           # Field of View masks
+│   │
+│   └── test/
+│       ├── images/         # Test fundus images
+│       ├── 1st_manual/     # Expert 1 annotations
+│       ├── 2nd_manual/     # Expert 2 annotations
+│       └── mask/           # Field of View masks
 │
 ├── src/
-│   ├── generator.py       # DataGenerator (patching, augmentation, padding)
-│   ├── model.py           # U-Net model definition
-│   ├── train.py           # 5-Fold Cross-Validation training
-│   └── evaluate.py        # DICE evaluation and mask reconstruction
+│   ├── model.py            # U-Net architecture
+│   ├── generator.py        # Data loading and augmentation
+│   ├── metrics.py          # Dice coefficient implementation
+│   ├── train.py            # Training pipeline
+│   ├── evaluate.py         # Evaluation and inference
+│   │
+│   └── test/
+│       ├── test_metrics.py
+│       └── test_integracion.py
 │
 ├── models/
-│   ├── unet_fold_1.keras
-│   └── ...
+│   ├── fold_1.keras
+│   ├── fold_2.keras
+│   ├── fold_3.keras
+│   ├── fold_4.keras
+│   └── fold_5.keras
 │
-├── output/
-│   ├── result_01.png
-│   └── ...
+├── predictions/
+│   ├── *_pred.png
+│   └── *_comparacion.png
 │
-├── docs/                  # Scientific report / LaTeX files
+├── notebooks/
+│   ├── exploracion.ipynb
+│   ├── evaluation_test.ipynb
+│   ├── demo_defensa.ipynb
+│   └── Segmentacion_Pipeline_Completo.ipynb
 │
-└── README.md
+├── docs/
+│
+└── LICENSE
 ```
+
+---
+
+## Directory Description
+
+| Directory | Description |
+|------------|------------|
+| `data/` | Complete DRIVE dataset with images, masks and annotations. |
+| `src/` | Core implementation of the segmentation pipeline. |
+| `src/test/` | Unit and integration tests. |
+| `models/` | Trained models obtained through 5-Fold Cross-Validation. |
+| `predictions/` | Generated segmentation masks and visual comparisons. |
+| `notebooks/` | Interactive notebooks for experimentation and demonstrations. |
+| `docs/` | Reports, documentation and supplementary material. |
 
 ---
 
 # 🛠️ Setup & Execution Guide
 
-## Installation
+## Requirements
 
-Ensure you are using **Python 3.10+**.
+- Python 3.10+
+- TensorFlow / Keras 3
 
-Install dependencies using:
+Install dependencies:
 
 ```bash
-pip install tensorflow keras numpy scikit-learn matplotlib pillow
+pip install tensorflow keras numpy scikit-learn matplotlib pillow opencv-python pytest
 ```
 
 ---
 
-## Execution Steps
+## Training
 
-### 1. Run Training
-
-Executes the full 5-fold cross-validation training pipeline and stores trained models in the `models/` directory.
+Run the complete 5-Fold Cross-Validation pipeline:
 
 ```bash
 python src/train.py
 ```
 
+Generated models will be stored inside:
+
+```text
+models/
+```
+
 ---
 
-### 2. Run Evaluation & Inference
+## Evaluation & Inference
 
-Evaluates saved models against the test dataset, computes final DICE scores, and generates segmentation masks as `.png` files.
+Execute the full evaluation pipeline:
 
 ```bash
 python src/evaluate.py
 ```
 
+This stage performs:
+
+1. Model loading
+2. Ensemble prediction
+3. Test-Time Augmentation
+4. Adaptive Otsu Thresholding
+5. Morphological Cleaning
+6. Dice computation
+7. PNG mask generation
+
+Generated outputs are saved inside:
+
+```text
+predictions/
+```
+
 ---
 
-# 🎓 Academic Attribution
+## ✅ Testing
 
-* **Institution:**
-  Universidad de Sevilla — Departamento de Ciencias de la Computación e Inteligencia Artificial (CCIA)
+Available test suites:
 
-* **Course:**
-  Inteligencia Artificial (Ingeniería del Software)
+- `test_metrics.py` → Validation of Dice coefficient calculations.
+- `test_integracion.py` → End-to-end integration testing.
 
-* **Project Specifications:**
-  Manuel Soriano Trigueros
+---
 
-* **Academic Year:**
-  2025/2026
+# 🎓 Academic Notebooks
 
+Two main interactive notebooks are included for reproducibility and presentations.
+
+## demo_defensa.ipynb
+
+Presentation-oriented notebook.
+
+Features:
+
+- Interactive image selection
+- Qualitative result comparison
+- Visualization of TTA effects
+- Otsu thresholding demonstrations
+
+Ideal for project defense and live demonstrations.
+
+---
+
+## Segmentacion_Pipeline_Completo.ipynb
+
+Complete end-to-end implementation.
+
+Includes:
+
+```text
+Data Loading
+     ↓
+Preprocessing
+     ↓
+Training
+     ↓
+Cross-Validation
+     ↓
+Inference
+     ↓
+TTA
+     ↓
+Adaptive Otsu
+     ↓
+Post-Processing
+     ↓
+Metrics
+```
+
+Suitable for:
+
+- Google Colab
+- Jupyter Notebook
+- JupyterLab
+
+---
+
+# 📚 References & Methodology
+
+### U-Net
+
+Ronneberger, O., Fischer, P., & Brox, T. (2015).
+
+> U-Net: Convolutional Networks for Biomedical Image Segmentation.
+
+Presented at MICCAI.
+
+---
+
+### Otsu Thresholding
+
+Otsu, N. (1979).
+
+> A Threshold Selection Method from Gray-Level Histograms.
+
+IEEE Transactions on Systems, Man, and Cybernetics.
+
+---
+
+### Test-Time Augmentation
+
+Wang, G., et al. (2019).
+
+> Aleatoric Uncertainty Estimation with Test-Time Augmentation for Medical Image Segmentation.
+
+Neurocomputing.
+
+---
+
+# 🛡️ Academic Attribution
+
+- **Institution:** Universidad de Sevilla — Departamento de Ciencias de la Computación e Inteligencia Artificial (CCIA)
+- **Course:** Inteligencia Artificial (Ingeniería del Software)
+- **Project Specifications:** Manuel Soriano Trigueros
+- **Academic Year:** 2025/2026
+
+---
+
+## 📄 License
+
+This repository is intended exclusively for educational and academic purposes within the Artificial Intelligence course at the University of Seville.
+
+The DRIVE dataset remains subject to its original licensing and usage conditions.
+
+The source code is distributed under the terms specified in the accompanying `LICENSE` file.

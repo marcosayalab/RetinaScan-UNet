@@ -2,139 +2,112 @@ import os
 import glob
 import numpy as np
 import tensorflow as tf
-from tensorflow import keras
+from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+from keras.optimizers import Adam
 from sklearn.model_selection import KFold
 
 from generator import DataGenerator
 from model import construir_unet
-from metrics import dice_coef, dice_loss, bce_dice_loss
+from metrics import dice_coef, bce_dice_loss
 
-# ===========================================================================
-# 0. CONFIGURACIÓN
-# ===========================================================================
-DIR_IMAGENES_TRAIN = os.path.join("data", "training", "images")
-DIR_MASCARAS_TRAIN = os.path.join("data", "training", "1st_manual")
-DIR_MODELOS        = "modelos_guardados"
-os.makedirs(DIR_MODELOS, exist_ok=True)
+img_dir = os.path.join("data", "training", "images")
+gt_dir = os.path.join("data", "training", "1st_manual")
+models_dir = os.path.join("models")
 
-BATCH_SIZE    = 4
-PATCH_SIZE    = (128, 128)
-EPOCHS        = 200
-N_FOLDS       = 5
-LEARNING_RATE = 1e-4
-PATIENCE_EARLY = 25
-INPUT_SHAPE   = (128, 128, 3)
-REPETICIONES  = 10   # multiplica parches por época
-SEED = 42
-np.random.seed(SEED)
-tf.random.set_seed(SEED)
+os.makedirs(models_dir, exist_ok=True)
 
-# ===========================================================================
-# 1. CARGA DE RUTAS
-# ===========================================================================
-def cargar_rutas_drive(dir_imagenes, dir_mascaras):
-    EXTENSIONES = ("*.tif", "*.tiff", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp")
-    rutas_imgs, rutas_masks = [], []
-    for ext in EXTENSIONES:
-        rutas_imgs  += glob.glob(os.path.join(dir_imagenes, ext))
-        rutas_masks += glob.glob(os.path.join(dir_mascaras, ext))
-    rutas_imgs  = sorted(set(rutas_imgs))
-    rutas_masks = sorted(set(rutas_masks))
+batch_size = 4
+patch_size = (128, 128)
+epochs = 200
+n_folds = 5
+learning_rate = 0.0001
+patience = 25
+input_shape = (128, 128, 3)
+reps = 10
+seed = 42
 
-    if len(rutas_imgs) == 0:
-        raise FileNotFoundError(f"No se encontraron imágenes en '{dir_imagenes}'.")
-    if len(rutas_masks) == 0:
-        raise FileNotFoundError(f"No se encontraron máscaras en '{dir_mascaras}'.")
-    if len(rutas_imgs) != len(rutas_masks):
-        raise ValueError(f"Nº imágenes ({len(rutas_imgs)}) ≠ Nº máscaras ({len(rutas_masks)}).")
+np.random.seed(seed)
+tf.random.set_seed(seed)
 
-    print(f"[INFO] {len(rutas_imgs)} pares imagen/máscara cargados.")
-    return np.array(rutas_imgs), np.array(rutas_masks)
+def get_paths(dir_img, dir_gt):
+    exts = ["*.tif", "*.tiff", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp"]
+    imgs = []
+    gts = []
 
-# ===========================================================================
-# 2. CALLBACKS
-# ===========================================================================
-def crear_callbacks(fold):
-    ruta_modelo = os.path.join(DIR_MODELOS, f"fold_{fold + 1}.keras")
+    for ext in exts:
+        imgs += glob.glob(os.path.join(dir_img, ext))
+        gts += glob.glob(os.path.join(dir_gt, ext))
+
+    imgs = sorted(set(imgs))
+    gts = sorted(set(gts))
+
+    if not imgs or not gts or len(imgs) != len(gts):
+        raise ValueError("Error cargando los archivos. Revisa las carpetas y que haya el mismo número de imágenes y máscaras.")
+
+    print(f"Cargados {len(imgs)} pares de imágenes.")
+    return np.array(imgs), np.array(gts)
+
+def get_callbacks(fold):
+    ruta_modelo = os.path.join(models_dir, f"fold_{fold}.keras")
+    
     return [
-        keras.callbacks.EarlyStopping(
-            monitor="val_dice_coef", mode="max",
-            patience=PATIENCE_EARLY, restore_best_weights=True, verbose=1
-        ),
-        keras.callbacks.ModelCheckpoint(
-            filepath=ruta_modelo, monitor="val_dice_coef",
-            mode="max", save_best_only=True, verbose=1
-        ),
-        keras.callbacks.ReduceLROnPlateau(
-            monitor="val_loss", factor=0.5, patience=7, min_lr=1e-7, verbose=1
-        ),
+        EarlyStopping(monitor="val_dice_coef", mode="max", patience=patience, restore_best_weights=True, verbose=1),
+        ModelCheckpoint(filepath=ruta_modelo, monitor="val_dice_coef", mode="max", save_best_only=True, verbose=1),
+        ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=7, min_lr=1e-7, verbose=1)
     ]
 
-# ===========================================================================
-# 3. ENTRENAMIENTO K-FOLD
-# ===========================================================================
-def entrenar_con_kfold(rutas_imgs, rutas_masks):
-    kf = KFold(n_splits=N_FOLDS, shuffle=True, random_state=SEED)
-    historial_dice_val = []
+def train(imgs, gts):
+    kf = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
+    resultados = []
 
-    for fold, (indices_train, indices_val) in enumerate(kf.split(rutas_imgs)):
-        print("\n" + "=" * 60)
-        print(f"  PLIEGUE {fold + 1} / {N_FOLDS}")
-        print(f"  Train: {len(indices_train)} imgs | Val: {len(indices_val)} imgs")
-        print("=" * 60)
-
+    for fold, (train_idx, val_idx) in enumerate(kf.split(imgs), 1):
+        print(f"\n--- Empezando fold {fold}/{n_folds} ---")
+        
         gen_train = DataGenerator(
-            rutas_imagenes=list(rutas_imgs[indices_train]) * REPETICIONES,
-            rutas_mascaras=list(rutas_masks[indices_train]) * REPETICIONES,
-            batch_size=BATCH_SIZE,
-            patch_size=PATCH_SIZE
+            rutas_imagenes=list(imgs[train_idx]) * reps,
+            rutas_gt=list(gts[train_idx]) * reps,
+            batch_size=batch_size,
+            patch_size=patch_size
         )
+        
         gen_val = DataGenerator(
-            rutas_imagenes=list(rutas_imgs[indices_val]),
-            rutas_mascaras=list(rutas_masks[indices_val]),
-            batch_size=BATCH_SIZE,
-            patch_size=PATCH_SIZE
+            rutas_imagenes=list(imgs[val_idx]),
+            rutas_gt=list(gts[val_idx]),
+            batch_size=batch_size,
+            patch_size=patch_size
         )
 
-        modelo = construir_unet(input_shape=INPUT_SHAPE)
+        modelo = construir_unet(input_shape=input_shape)
         modelo.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
+            optimizer=Adam(learning_rate=learning_rate),
             loss=bce_dice_loss,
             metrics=[dice_coef]
         )
 
-        historia = modelo.fit(
+        historial = modelo.fit(
             gen_train,
             validation_data=gen_val,
-            epochs=EPOCHS,
-            callbacks=crear_callbacks(fold),
+            epochs=epochs,
+            callbacks=get_callbacks(fold),
             verbose=1
         )
 
-        mejor_dice = max(historia.history["val_dice_coef"])
-        historial_dice_val.append(mejor_dice)
-        print(f"\n[FOLD {fold + 1}] Mejor DICE validación: {mejor_dice:.4f}")
+        mejor_val = max(historial.history["val_dice_coef"])
+        resultados.append(mejor_val)
+        print(f"Fold {fold} terminado con DICE de {mejor_val:.4f}")
 
-    print("\n" + "=" * 60)
-    print("  RESUMEN FINAL - VALIDACIÓN CRUZADA 5-FOLD")
-    print("=" * 60)
-    for i, dice in enumerate(historial_dice_val):
-        print(f"  Fold {i + 1}: DICE = {dice:.4f}")
-    print(f"\n  Media DICE : {np.mean(historial_dice_val):.4f}")
-    print(f"  Desv. típ. : {np.std(historial_dice_val):.4f}")
-    print("=" * 60)
+    print("\nResumen final:")
+    for i, res in enumerate(resultados, 1):
+        print(f"Fold {i}: {res:.4f}")
+    print(f"Media: {np.mean(resultados):.4f} | Desviación: {np.std(resultados):.4f}")
 
-# ===========================================================================
-# 4. PUNTO DE ENTRADA
-# ===========================================================================
+
 if __name__ == "__main__":
-    print("[INFO] Cargando rutas del dataset DRIVE...")
-    rutas_imgs, rutas_masks = cargar_rutas_drive(DIR_IMAGENES_TRAIN, DIR_MASCARAS_TRAIN)
+    print("Arrancando script...")
+    imgs, gts = get_paths(img_dir, gt_dir)
 
-    print("\n--- DIAGNÓSTICO DE RUTAS ---")
-    for img, mask in zip(rutas_imgs[:3], rutas_masks[:3]):
-        print(f"  IMG : {os.path.basename(img)}")
-        print(f"  MASK: {os.path.basename(mask)}")
+    print("\nComprobando que emparejan bien:")
+    for i, g in zip(imgs[:3], gts[:3]):
+        print(f" - {os.path.basename(i)} -> {os.path.basename(g)}")
 
-    print("\n[INFO] Iniciando entrenamiento con validación cruzada 5-Fold...")
-    entrenar_con_kfold(rutas_imgs, rutas_masks)
+    train(imgs, gts)
