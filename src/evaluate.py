@@ -10,7 +10,6 @@ import keras
 from sklearn.metrics import precision_score, recall_score
 import sys
 
-# Añadimos 'src' al path para poder importar nuestros modulos locales
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 from metrics import dice_coef, dice_loss, bce_dice_loss
 
@@ -24,7 +23,7 @@ out_dir = os.path.join("predictions")
 os.makedirs(out_dir, exist_ok=True)
 
 patch_size = (128, 128)
-input_shape = (128, 128, 3)
+input_shape = (128, 128, 1)  # CAMBIO: 1 canal
 
 def leer_img(ruta):
     img = cv2.imread(ruta, cv2.IMREAD_COLOR)
@@ -33,13 +32,16 @@ def leer_img(ruta):
     
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     
-    # Aplicar filtro CLAHE al canal L
+    # CLAHE igual que en entrenamiento
     img_lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     img_lab[:, :, 0] = clahe.apply(img_lab[:, :, 0])
     img = cv2.cvtColor(img_lab, cv2.COLOR_LAB2RGB)
+
+    # CAMBIO: convertir a gris después del CLAHE, igual que en entrenamiento
+    img_gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     
-    return img.astype(np.float32) / 255.0
+    return img_gray.astype(np.float32) / 255.0
 
 def leer_mascara(ruta):
     mascara = cv2.imread(ruta, cv2.IMREAD_GRAYSCALE)
@@ -52,34 +54,36 @@ def obtener_numero(nombre):
     return num.group(1) if num else nombre
 
 def predecir_parches(modelo, img, p_size=(128, 128), stride=64):
-    h, w, _ = img.shape
+    # CAMBIO: img ahora es 2D (H, W), añadimos canal para el modelo
+    h, w = img.shape
     ph, pw = p_size
 
     acumulador = np.zeros((h, w), dtype=np.float32)
-    contador = np.zeros((h, w), dtype=np.float32)
+    contador   = np.zeros((h, w), dtype=np.float32)
 
     filas = list(range(0, h - ph + 1, stride))
-    cols = list(range(0, w - pw + 1, stride))
+    cols  = list(range(0, w - pw + 1, stride))
 
     if not filas: filas = [0]
-    if not cols: cols = [0]
+    if not cols:  cols  = [0]
     if filas[-1] + ph < h: filas.append(h - ph)
-    if cols[-1] + pw < w: cols.append(w - pw)
+    if cols[-1]  + pw < w: cols.append(w - pw)
 
     parches = []
-    coords = []
+    coords  = []
     
     for r in filas:
         for c in cols:
-            parches.append(img[r:r+ph, c:c+pw, :])
+            parche = img[r:r+ph, c:c+pw]
+            parches.append(parche[:, :, np.newaxis])  # (128,128,1)
             coords.append((r, c))
 
     parches = np.array(parches, dtype=np.float32)
-    preds = modelo.predict(parches, verbose=0, batch_size=16)
+    preds   = modelo.predict(parches, verbose=0, batch_size=16)
 
     for i, (r, c) in enumerate(coords):
         acumulador[r:r+ph, c:c+pw] += preds[i, :, :, 0]
-        contador[r:r+ph, c:c+pw] += 1.0
+        contador[r:r+ph, c:c+pw]   += 1.0
 
     contador[contador == 0] = 1.0
     return acumulador / contador
@@ -97,22 +101,19 @@ def cargar_modelos(carpeta):
         
     return modelos
 
-def ensemble_predict(modelos, img, p_size=(128, 128), stride=64):
-    suma = np.zeros(img.shape[:2], dtype=np.float32)
-    
+def ensemble_predict(modelos, img, p_size=(128, 128), stride=32):
     img_h = cv2.flip(img, 1)
     img_v = cv2.flip(img, 0)
     
+    todas_las_preds = []
+    
     for m in modelos:
-        suma += predecir_parches(m, img, p_size, stride)
+        todas_las_preds.append(predecir_parches(m, img, p_size, stride))
+        todas_las_preds.append(cv2.flip(predecir_parches(m, img_h, p_size, stride), 1))
+        todas_las_preds.append(cv2.flip(predecir_parches(m, img_v, p_size, stride), 0))
         
-        p_h = predecir_parches(m, img_h, p_size, stride)
-        suma += cv2.flip(p_h, 1)
-        
-        p_v = predecir_parches(m, img_v, p_size, stride)
-        suma += cv2.flip(p_v, 0)
-        
-    return suma / (len(modelos) * 3.0)
+    preds_array = np.array(todas_las_preds)
+    return np.median(preds_array, axis=0)
 
 def obtener_rutas_test():
     exts = ["*.tif", "*.png", "*.jpg", "*.bmp", "*.gif"]
@@ -125,22 +126,22 @@ def obtener_rutas_test():
         fovs += glob.glob(os.path.join(fov_dir, ext))
 
     idx_imgs = {obtener_numero(os.path.basename(r)): r for r in imgs}
-    idx_gt1 = {obtener_numero(os.path.basename(r)): r for r in gt1s}
-    idx_gt2 = {obtener_numero(os.path.basename(r)): r for r in gt2s}
-    idx_fov = {obtener_numero(os.path.basename(r)): r for r in fovs}
+    idx_gt1  = {obtener_numero(os.path.basename(r)): r for r in gt1s}
+    idx_gt2  = {obtener_numero(os.path.basename(r)): r for r in gt2s}
+    idx_fov  = {obtener_numero(os.path.basename(r)): r for r in fovs}
 
     comunes = sorted(set(idx_imgs) & set(idx_gt1) & set(idx_gt2))
     
     if not comunes:
         raise FileNotFoundError("No se encontraron coincidencias de archivos en las carpetas de test.")
 
-    imgs_fin = [idx_imgs[n] for n in comunes]
-    gt1_fin = [idx_gt1[n] for n in comunes]
-    gt2_fin = [idx_gt2[n] for n in comunes]
-    fov_fin = [idx_fov.get(n) for n in comunes]
-
     print(f"Encontradas {len(comunes)} imágenes para evaluar.")
-    return imgs_fin, gt1_fin, gt2_fin, fov_fin
+    return (
+        [idx_imgs[n] for n in comunes],
+        [idx_gt1[n]  for n in comunes],
+        [idx_gt2[n]  for n in comunes],
+        [idx_fov.get(n) for n in comunes],
+    )
 
 def calcular_dice(pred, mask):
     inter = np.sum(pred * mask)
@@ -161,34 +162,40 @@ def run_evaluation():
         nombre = os.path.basename(r_img).split('.')[0]
         print(f"\n[{i}/{len(imgs)}] Evaluando: {nombre}")
 
-        img = leer_img(r_img)
+        img = leer_img(r_img)   
         gt1 = leer_mascara(r_gt1)
         gt2 = leer_mascara(r_gt2)
         fov = leer_mascara(r_fov) if r_fov else None
 
-        prob = ensemble_predict(modelos, img, patch_size, 64)
+        if fov is not None:
+            if fov.shape != img.shape:
+                fov_res = cv2.resize(fov, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
+            else:
+                fov_res = fov
+            img = img * fov_res  
+
+        prob = ensemble_predict(modelos, img, patch_size, 32)
 
         prob_uint8 = (prob * 255).astype(np.uint8)
         
+        # Limpiar probabilidades del fondo antes de Otsu
+        if fov is not None:
+            prob_uint8 = (prob_uint8 * fov_res).astype(np.uint8)
         
         umbral_otsu_val, _ = cv2.threshold(prob_uint8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         umbral_real = umbral_otsu_val / 255.0
         
-        umbral_ajustado = max(0, umbral_real - 0.040)
+        umbral_ajustado = max(0, umbral_real - 0.050)
         _, pred_uint8 = cv2.threshold(prob_uint8, int(umbral_ajustado * 255), 255, cv2.THRESH_BINARY)
         print(f"    -> Umbral Otsu: {umbral_real:.4f} | Ajustado: {umbral_ajustado:.4f}")
         
-        pred = (pred_uint8 / 255.0).astype(np.float32)
-        
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         pred_uint8 = cv2.morphologyEx(pred_uint8, cv2.MORPH_CLOSE, kernel, iterations=1)
-        pred = (pred_uint8 / 255.0).astype(np.float32)
 
-        # Filtro de limpiado
-        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(pred_uint8, connectivity=8)
-        pred_limpia = np.zeros_like(pred)
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(pred_uint8, connectivity=8)
+        pred_limpia = np.zeros_like(pred_uint8, dtype=np.float32)
         for j in range(1, num_labels):
-            if stats[j, cv2.CC_STAT_AREA] >= 2:  
+            if stats[j, cv2.CC_STAT_AREA] >= 2:
                 pred_limpia[labels == j] = 1.0
         pred = pred_limpia
 
@@ -196,8 +203,8 @@ def run_evaluation():
             if fov.shape != pred.shape:
                 fov = cv2.resize(fov, (pred.shape[1], pred.shape[0]), interpolation=cv2.INTER_NEAREST)
             pred *= fov
-            gt1 *= fov
-            gt2 *= fov
+            gt1  *= fov
+            gt2  *= fov
 
         d1 = calcular_dice(pred, gt1)
         d2 = calcular_dice(pred, gt2)
@@ -208,11 +215,8 @@ def run_evaluation():
         res_dice_prom.append(d_prom)
 
         gt_union = np.maximum(gt1, gt2)
-        gt_plano = gt_union.flatten()
-        pred_plano = pred.flatten()
-            
-        prec = precision_score(gt_plano, pred_plano, zero_division=0)
-        rec = recall_score(gt_plano, pred_plano, zero_division=0)
+        prec = precision_score(gt_union.flatten(), pred.flatten(), zero_division=0)
+        rec  = recall_score(gt_union.flatten(), pred.flatten(), zero_division=0)
         
         res_precision.append(prec)
         res_recall.append(rec)
@@ -221,11 +225,12 @@ def run_evaluation():
 
         cv2.imwrite(os.path.join(out_dir, f"{nombre}_pred.png"), (pred * 255).astype(np.uint8))
 
+        # Para visualizar la imagen en gris en matplotlib
         fig, axes = plt.subplots(2, 2, figsize=(10, 10))
         fig.suptitle(f"{nombre} - DICE Media: {d_prom:.4f}")
         
-        axes[0, 0].imshow(img)
-        axes[0, 0].set_title("Original")
+        axes[0, 0].imshow(img, cmap="gray")
+        axes[0, 0].set_title("Original (gris)")
         axes[0, 0].axis("off")
         
         axes[0, 1].imshow(gt1, cmap="gray")
@@ -252,7 +257,7 @@ def run_evaluation():
         print(f"[{estado}] {nom} -> DICE Exp1: {d1:.4f} | DICE Exp2: {d2:.4f} | DICE Media: {d_prom:.4f}")
         
     media_total = np.mean(res_dice_prom)
-    aprobados = sum(1 for d in res_dice_prom if d >= 0.75)
+    aprobados   = sum(1 for d in res_dice_prom if d >= 0.75)
     
     print("\nResumen general:")
     print(f"  DICE Experto 1 : {np.mean(res_dice1):.4f}")

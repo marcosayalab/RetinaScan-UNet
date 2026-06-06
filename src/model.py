@@ -11,7 +11,7 @@ def bloque_convolucion_doble(x, num_filtros):
                       activation="relu", kernel_initializer="he_normal")(x)
     return x
 
-def construir_unet(input_shape=(128, 128, 3)):
+def construir_unet(input_shape=(128, 128, 1)):
 
     inputs = layers.Input(shape=input_shape)
     
