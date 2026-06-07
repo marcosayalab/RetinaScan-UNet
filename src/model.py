@@ -18,46 +18,46 @@ def construir_unet(input_shape=(128, 128, 1)):
     # 1. RUTA DE CONTRACCIÓN (ENCODER)
     
     # Bloque 1
-    c1 = bloque_convolucion_doble(inputs, 16)
+    c1 = bloque_convolucion_doble(inputs, 32)
     p1 = layers.MaxPooling2D(pool_size=(2, 2))(c1)
     
     # Bloque 2
-    c2 = bloque_convolucion_doble(p1, 32)
+    c2 = bloque_convolucion_doble(p1, 64)
     p2 = layers.MaxPooling2D(pool_size=(2, 2))(c2)
     
     # Bloque 3
-    c3 = bloque_convolucion_doble(p2, 64)
+    c3 = bloque_convolucion_doble(p2, 128)
     p3 = layers.MaxPooling2D(pool_size=(2, 2))(c3)
     
     # Bloque 4
-    c4 = bloque_convolucion_doble(p3, 128)
+    c4 = bloque_convolucion_doble(p3, 256)
     p4 = layers.MaxPooling2D(pool_size=(2, 2))(c4)
     
     # 2. CUELLO DE BOTELLA (BOTTLENECK) (Parte más profunda de la U-Net)
 
-    c5 = bloque_convolucion_doble(p4, 256)
+    c5 = bloque_convolucion_doble(p4, 512)
     
     # 3. RUTA DE EXPANSIÓN (DECODER)
 
     # Bloque 6 (Sube de nivel desde c5 y concatena con c4)
-    u6 = layers.Conv2DTranspose(128, kernel_size=2, strides=(2, 2), padding="same")(c5)
+    u6 = layers.Conv2DTranspose(256, kernel_size=2, strides=(2, 2), padding="same")(c5)
     u6 = layers.concatenate([u6, c4])
-    c6 = bloque_convolucion_doble(u6, 128)
+    c6 = bloque_convolucion_doble(u6, 256)
     
     # Bloque 7
-    u7 = layers.Conv2DTranspose(64, kernel_size=2, strides=(2, 2), padding="same")(c6)
+    u7 = layers.Conv2DTranspose(128, kernel_size=2, strides=(2, 2), padding="same")(c6)
     u7 = layers.concatenate([u7, c3])
-    c7 = bloque_convolucion_doble(u7, 64)
+    c7 = bloque_convolucion_doble(u7, 128)
     
     # Bloque 8
-    u8 = layers.Conv2DTranspose(32, kernel_size=2, strides=(2, 2), padding="same")(c7)
+    u8 = layers.Conv2DTranspose(64, kernel_size=2, strides=(2, 2), padding="same")(c7)
     u8 = layers.concatenate([u8, c2])
-    c8 = bloque_convolucion_doble(u8, 32)
+    c8 = bloque_convolucion_doble(u8, 64)
     
     # Bloque 9
-    u9 = layers.Conv2DTranspose(16, kernel_size=2, strides=(2, 2), padding="same")(c8)
+    u9 = layers.Conv2DTranspose(32, kernel_size=2, strides=(2, 2), padding="same")(c8)
     u9 = layers.concatenate([u9, c1])
-    c9 = bloque_convolucion_doble(u9, 16)
+    c9 = bloque_convolucion_doble(u9, 32)
     
     # 4. CAPA DE SALIDA
 
